@@ -21,7 +21,7 @@
 
   <link rel="preconnect" href="https://ae01.alicdn.com" crossorigin />
   <link rel="stylesheet" href="./style.css" />
-  <script src="./app.js" defer></script>
+  <script src="./app.js?v=2" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -32,6 +32,35 @@
   </header>
 
   <main id="app" class="app">
+
+    <!-- ═══ Root storefront: dynamic catalog (bio-link landing) ═══ -->
+    <section id="storefront" class="storefront" hidden>
+      <header class="storefront__hero">
+        <p class="storefront__eyebrow">Quietly curated · New finds daily</p>
+        <h1 class="storefront__title">Rooms worth lingering in —<br class="hide-sm" /> for less than you'd think</h1>
+        <p class="storefront__sub">
+          Warm, minimal room upgrades chosen for how they make a space feel —
+          soft light, texture, and quiet detail.
+        </p>
+      </header>
+
+      <div class="storefront__bar">
+        <h2 class="storefront__shelf">Loved lately</h2>
+        <span class="storefront__count" id="catalog-count" aria-live="polite"></span>
+      </div>
+
+      <div class="grid grid--catalog" id="catalog-grid" aria-busy="true"></div>
+
+      <div class="storefront__empty" id="catalog-empty" hidden>
+        <p class="storefront__empty-title">The collection is being refreshed</p>
+        <p class="storefront__empty-text">
+          New pieces are on their way — wander our latest pins in the meantime.
+        </p>
+        <a class="cta cta--block" href="https://www.pinterest.com/" rel="noopener" target="_blank">
+          Keep browsing on Pinterest
+        </a>
+      </div>
+    </section>
 
     <!-- ═══ Loading skeleton ═══ -->
     <section id="skeleton" class="product" aria-busy="true" aria-label="Loading product">

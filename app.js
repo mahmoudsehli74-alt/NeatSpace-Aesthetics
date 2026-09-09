@@ -21,6 +21,10 @@
 const CONFIG = {
   fetchTimeoutMs: 8000,
   featuredCount: 6,
+  // Public repo whose products/ directory is the live catalog source.
+  repo: "mahmoudsehli74-alt/NeatSpace-Aesthetics",
+  catalogMax: 24,
+  catalogCacheTtlMs: 30 * 60 * 1000,
   pinterestProfile: "https://www.pinterest.com/",
   angleLabels: {
     "cozy-corner": "Cozy Corner Essential",
@@ -59,6 +63,7 @@ function el(tag, attrs = {}, ...children) {
     else if (value != null) node.setAttribute(key, value);
   }
   for (const child of children) {
+    if (child == null) continue; // conditional children arrive as null — skip
     node.appendChild(typeof child === "string" ? document.createTextNode(child) : child);
   }
   return node;
@@ -288,6 +293,107 @@ function hydrateProduct(doc) {
   if (hero) $("og-image")?.setAttribute("content", hero);
 }
 
+/* ── root storefront catalog (ported from the Kitchen architecture) ──────
+   The bridge committer pushes ./products/{key}.json continuously; the root
+   catalog enumerates the folder through the PUBLIC GitHub Contents API
+   (sessionStorage-cached 30 min, far under the 60 req/h anonymous limit).
+   Fresh pins appear on the root page within one cache cycle. All untrusted
+   marketplace content renders via textContent only — never innerHTML. */
+
+function catalogSessionKey() {
+  return `ns-catalog-${CONFIG.repo}/products`;
+}
+
+async function listCatalogKeys() {
+  const cached = sessionStorage.getItem(catalogSessionKey());
+  if (cached) {
+    try {
+      const { keys, ts } = JSON.parse(cached);
+      if (Array.isArray(keys) && Date.now() - ts < CONFIG.catalogCacheTtlMs) {
+        return keys;
+      }
+    } catch { /* corrupted cache — refetch */ }
+  }
+  const url = `https://api.github.com/repos/${CONFIG.repo}/contents/products`;
+  const files = await fetchJson(url);
+  if (!Array.isArray(files)) throw new Error("unexpected catalog listing");
+  const keys = files
+    .map((f) => (f && f.type === "file" && typeof f.name === "string" ? f.name : ""))
+    .filter((name) => name.endsWith(".json"))
+    .map((name) => name.slice(0, -".json".length))
+    .filter((key) => sanitizeId(key))
+    .sort()
+    .reverse(); // newest first
+  try {
+    sessionStorage.setItem(catalogSessionKey(),
+                          JSON.stringify({ keys, ts: Date.now() }));
+  } catch { /* private mode: skip caching */ }
+  return keys;
+}
+
+/** Product card in the Aesthetics voice: 4:5 portrait thumb, quietly
+ *  beautiful copy, clay CTA. Whole card deep-links to the pin landing. */
+function buildCatalogCard(doc) {
+  const thumb = doc.images[0] || PLACEHOLDER_IMAGE;
+  const deal = discountPercent(doc.current, doc.original);
+
+  const img = el("img", {
+    src: thumb,
+    alt: "",
+    loading: "lazy",
+    decoding: "async",
+    referrerpolicy: "no-referrer",
+    onerror: (e) => { e.target.src = PLACEHOLDER_IMAGE; },
+  });
+
+  return el(
+    "a",
+    { class: "card card--catalog", href: `./?id=${encodeURIComponent(doc.key)}` },
+    el("div", { class: "card__thumb" }, img,
+      deal ? el("span", { class: "card__deal", text: deal }) : null),
+    el("div", { class: "card__body" },
+      el("div", { class: "card__title", text: doc.title }),
+      el("div", { class: "card__row" },
+        el("span", { class: "card__price", text: formatPrice(doc.current, doc.currency) || "See price" }),
+        doc.original ? el("span", { class: "card__price-old", text: formatPrice(doc.original, doc.currency) }) : null),
+      el("span", { class: "card__cta", text: "Shop the Look" })
+    )
+  );
+}
+
+async function renderCatalog(keys) {
+  const grid = $("catalog-grid");
+  const shown = keys.slice(0, CONFIG.catalogMax);
+  const docs = (await Promise.allSettled(
+    shown.map((key) => fetchJson(`./products/${encodeURIComponent(key)}.json`))
+  ))
+    .map((r) => (r.status === "fulfilled" ? normalizeDocument(r.value) : null))
+    .filter((doc) => doc && doc.key);
+  docs.forEach((doc) => grid.appendChild(buildCatalogCard(doc)));
+  $("catalog-count").textContent =
+    grid.children.length ? `${grid.children.length} curated finds` : "";
+  return grid.children.length;
+}
+
+async function showStorefront() {
+  $("skeleton").hidden = true;
+  $("product").hidden = true;
+  $("fallback").hidden = true;
+  const home = $("storefront");
+  home.hidden = false;
+  document.title = "NeatSpace Aesthetics — Rooms Worth Lingering In";
+
+  let rendered = 0;
+  try {
+    rendered = await renderCatalog(await listCatalogKeys());
+  } catch (error) {
+    console.warn("[neatspace] catalog listing failed:", error);
+  }
+  if (!rendered) {
+    $("catalog-empty").hidden = false;
+  }
+}
+
 /* ── fallback / 404 ───────────────────────────────────────────────────── */
 
 function showFallbackSkeletonOff() {
@@ -345,7 +451,8 @@ function showProduct() {
 function init() {
   const id = productIdFromUrl();
   if (!id) {
-    showFallback();
+    // Root visit (bio link): the dynamic catalog, not the 404 hero.
+    showStorefront();
     return;
   }
   fetchJson(`./products/${encodeURIComponent(id)}.json`)
